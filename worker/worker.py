@@ -5,50 +5,47 @@ from ast import literal_eval
 import helper
 import queue_helper as qh
 
-sqs = boto3.resource("sqs")
+sqs = boto3.resource("sqs", region_name='us-east-1')
 QUEUE_NAME = 'airscholar-queue'
-RESULT_QUEUE_NAME = 'result-queue'
-def process_message(matrix_a, matrix_b):
-    print(matrix_a)
-    print(matrix_b)
-
-    print(matrix_a[0][0])
-    print(matrix_b[0][0])
-    result = np.add(matrix_a, matrix_b)
-
-    print("Addition result:", result)
-    # do what you want with the message here
-    pass
-
+RESULT_QUEUE_NAME = 'queue0'
 
 if __name__ == "__main__":
     # sqs_queue = sqs.get_queue_by_name(QueueName=sys.argv[1])
-    sqs_queue = sqs.get_queue_by_name(QueueName='queue4')
+    QUEUE_NAME = f"queue{sys.argv[1]}"
+    RESULT_QUEUE_NAME = f"result-queue-{sys.argv[1]}"
 
-    # while True:
-    #     messages = sqs_queue.receive_messages()
-    #
-    #     for message in messages:
-    #         # print(message.body)
-    #         a, b = literal_eval(message.body)
-    #         a = literal_eval(a)
-    #         b = literal_eval(b)
-    #
-    #         result = helper.add(a, b)
-    #         # result = helper.reformat_data(result)
-    #         # result = result.split(' ')
-    #         # result = ''.join(result)
-    #         result = np.array(result).tolist()
-    #
-    #         # [{"Id": f"{idx}", "MessageBody": str((reformat_data(s_arr[idx]), reformat_data(s_arr1[idx])))} for idx in
-    #         #  range(5, 10)]
-    #         response = list([{"Id": "2", "MessageBody": str(result)}])
-    #         qh.send_message_to_queue(sqs, RESULT_QUEUE_NAME, response)
-    #         print('message processed!')
-    #         message.delete()
+    print(f"Worker {sys.argv[1]} started")
+    sqs_queue = sqs.get_queue_by_name(QueueName=QUEUE_NAME)
+    print("Queue url:", sqs_queue.url)
 
-        # if len(matrix) == 2:
-        #     process_message(matrix)
+    while True:
+        messages = sqs_queue.receive_messages()
+
+        for message in messages:
+            # print(message.body)
+            index, matrices = literal_eval(message.body)
+            matrix_a, matrix_b = matrices
+
+            matrix_a = matrix_a.replace('  ', ',').replace('[ ', '[').replace(' ', ',')
+            matrix_b = matrix_b.replace('  ', ',').replace('[ ', '[').replace(' ', ',')
+
+            matrix_a = literal_eval(matrix_a)
+            matrix_b = literal_eval(matrix_b)
+
+            result = helper.matrix_dot_product(matrix_a, matrix_b)
+            matrix_a = np.array(matrix_a)
+            matrix_b = np.array(matrix_b)
+
+            # print("Received message:", index, type(matrix_a), type(matrix_b))
+            result = helper.matrix_dot_product(matrix_a, matrix_b)
+            # print("Result:", result)
+            print(f'Message {(index+1)} processed!')
+            response = [{"Id": f"{index+1}", "MessageBody": str((index, helper.reformat_data(result)))}]
+            qh.send_message_to_queue(sqs, RESULT_QUEUE_NAME, response)
+
+            print(f"Message {(index+1)} sent to result queue")
+            message.delete()
+
 #result
     # while True:
     #     messages = sqs_queue.receive_messages()

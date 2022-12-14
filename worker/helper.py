@@ -1,9 +1,9 @@
-import numpy as np
 import datetime
-
+import numpy as np
 
 def reformat_data(data):
-    return str(data).replace(' ', ',').replace('\n', '')
+    return str(data).replace('\n', '')
+
 
 def matrix_dot_product(matrix_a, matrix_b):
     start_time = datetime.datetime.now()
@@ -18,7 +18,7 @@ def matrix_dot_product(matrix_a, matrix_b):
         result.append(row)
     print('Computation time', datetime.datetime.now() - start_time)
 
-    return result
+    return np.array(result)
 
 
 def matrix_add(matrix_1, matrix_2):
