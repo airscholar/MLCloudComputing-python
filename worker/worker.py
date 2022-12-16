@@ -23,22 +23,24 @@ if __name__ == "__main__":
 
         for message in messages:
             # print(message.body)
-            index, matrices = literal_eval(message.body)
+            operation, data = literal_eval(message.body)
+            index, matrices = data
             matrix_a, matrix_b = matrices
 
             matrix_a = matrix_a.replace('  ', ',').replace('[ ', '[').replace(' ', ',')
             matrix_b = matrix_b.replace('  ', ',').replace('[ ', '[').replace(' ', ',')
 
-            matrix_a = literal_eval(matrix_a)
-            matrix_b = literal_eval(matrix_b)
+            matrix_a = np.array(literal_eval(matrix_a))
+            matrix_b = np.array(literal_eval(matrix_b))
 
-            result = helper.matrix_dot_product(matrix_a, matrix_b)
-            matrix_a = np.array(matrix_a)
-            matrix_b = np.array(matrix_b)
+            if operation == 'addition':
+                result = helper.matrix_add(matrix_a, matrix_b)
+            elif operation == 'multiply':
+                result = helper.matrix_dot_product(matrix_a, matrix_b)
+            else:
+                raise Exception("Unknown operation")
 
-            # print("Received message:", index, type(matrix_a), type(matrix_b))
-            result = helper.matrix_dot_product(matrix_a, matrix_b)
-            # print("Result:", result)
+            print("Matrix 1: =>", matrix_a, "Matrix 2:", matrix_b, f"Result: {index} =>", result)
             print(f'Message {(index+1)} processed!')
             response = [{"Id": f"{index+1}", "MessageBody": str((index, helper.reformat_data(result)))}]
             qh.send_message_to_queue(sqs, RESULT_QUEUE_NAME, response)
