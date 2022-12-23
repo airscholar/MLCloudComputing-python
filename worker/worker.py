@@ -5,17 +5,10 @@ from ast import literal_eval
 import helper
 import queue_helper as qh
 
-sqs = boto3.resource("sqs", region_name='us-east-1')
-QUEUE_NAME = 'airscholar-queue'
-RESULT_QUEUE_NAME = 'queue0'
 
-if __name__ == "__main__":
-    # sqs_queue = sqs.get_queue_by_name(QueueName=sys.argv[1])
-    QUEUE_NAME = f"queue{sys.argv[1]}"
-    RESULT_QUEUE_NAME = f"result-queue-{sys.argv[1]}"
-
-    print(f"Worker {sys.argv[1]} started")
-    sqs_queue = sqs.get_queue_by_name(QueueName=QUEUE_NAME)
+def perform_computation(sqs, worker_id, queue_name, result_queue_name):
+    print(f"Worker {worker_id} started")
+    sqs_queue = sqs.get_queue_by_name(QueueName=queue_name)
     print("Queue url:", sqs_queue.url)
 
     while True:
@@ -35,23 +28,27 @@ if __name__ == "__main__":
 
             if operation == 'addition':
                 result = helper.matrix_add(matrix_a, matrix_b)
-            elif operation == 'multiply':
+            elif operation == 'multiplication':
                 result = helper.matrix_dot_product(matrix_a, matrix_b)
             else:
                 raise Exception("Unknown operation")
 
             print("Matrix 1: =>", matrix_a, "Matrix 2:", matrix_b, f"Result: {index} =>", result)
-            print(f'Message {(index+1)} processed!')
-            response = [{"Id": f"{index+1}", "MessageBody": str((index, helper.reformat_data(result)))}]
-            qh.send_message_to_queue(sqs, RESULT_QUEUE_NAME, response)
+            print(f'Message {(index + 1)} processed!')
+            response = [{"Id": f"{index + 1}", "MessageBody": str((index, helper.reformat_data(result)))}]
+            qh.send_message_to_queue(sqs, result_queue_name, response)
 
-            print(f"Message {(index+1)} sent to result queue")
-            message.delete()
+            print(f"Message {(index + 1)} sent to result queue")
+            message.delete() # Delete the message from the queue
 
-#result
-    # while True:
-    #     messages = sqs_queue.receive_messages()
-    #
-    #     for message in messages:
-    #         # print(message.body)
-    #         print(message.body)
+
+if __name__ == "__main__":
+    sqs = boto3.resource("sqs", region_name='us-east-1')
+    agent_id = sys.argv[1]
+
+    try:
+        perform_computation(sqs, agent_id, queue_name=f"queue{agent_id}", result_queue_name=f"result-queue-{agent_id}")
+    except Exception as e:
+        print(f'Worker {agent_id} crash with error: {e}')
+        print('Restarting worker...')
+        perform_computation(sqs, agent_id, queue_name=f"queue{agent_id}", result_queue_name=f"result-queue-{agent_id}")

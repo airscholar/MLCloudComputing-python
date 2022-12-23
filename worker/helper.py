@@ -6,8 +6,14 @@ def reformat_data(data):
 
 
 def matrix_dot_product(matrix_a, matrix_b):
+    # Check that the matrices have compatible dimensions
+    if matrix_a.shape[1] != matrix_b.shape[0]:
+        print("Error: Matrices have incompatible dimensions")
+        exit(1)
+
     start_time = datetime.datetime.now()
-    result = []
+    result = np.zeros(matrix_a.shape)
+
     for i in range(len(matrix_a)):
         row = []
         for j in range(len(matrix_b[0])):
