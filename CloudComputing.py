@@ -83,7 +83,7 @@ class CloudComputingApp:
             },
             SecurityGroupIds=self.get_default_security_group(client, key_name='GroupId')
         )
-        ec2_inst_ids = [res["InstanceId"] for res in response]
+        ec2_inst_ids = [res["InstanceId"] for res in response if res]
         # wait for all the instances to be running
         waiter = client.get_waiter('instance_running')
         # extract instance ids of the instances launched
@@ -444,7 +444,7 @@ class CloudComputingApp:
         """
         if operation == 'addition':
             for queue_id, dt in enumerate(np.array_split(np.arange(0, len(split_array1)), self.INSTANCE_SIZE)):
-                print(f'Queue {queue_id} has {len(dt)} tasks')
+                print(f'Processing Queue {queue_id} with {len(dt)} tasks')
                 # send the data to the server
                 [self.send_message_to_queue(self.sqs, f'queue{queue_id}',
                                             [{"Id": f"{idx + 1}", "MessageBody": str((operation, (idx, (
