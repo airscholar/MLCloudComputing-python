@@ -14,9 +14,9 @@ from files.file_helper import fetch_local_files
 np.set_printoptions(threshold=sys.maxsize)
 
 
-class MLBDApp:
-    def __init__(self):
-        self.INSTANCE_SIZE = 2
+class CloudComputingApp:
+    def __init__(self, instance_size):
+        self.INSTANCE_SIZE = instance_size
         self.sqs = boto3.resource('sqs', region_name='us-east-1')
         self.ec2 = boto3.client('ec2', region_name='us-east-1')
         self.sqs_client = boto3.client('sqs')
@@ -34,7 +34,7 @@ class MLBDApp:
 
         return response
 
-    def get_key_pairs(self, client, removeExisting=False):
+    def get_key_pairs(self, client, key_name, removeExisting=False):
         """
         Get key pairs. If removeExisting is True, delete existing key pairs and create a new one
         :param client: ec2 client
@@ -42,17 +42,17 @@ class MLBDApp:
         :return: key pair name
         """
         if removeExisting:
-            client.delete_key_pair(KeyName='airscholar-key')
+            client.delete_key_pair(KeyName=key_name)
 
         # get all key pairs
         keypairs = client.describe_key_pairs()['KeyPairs']
 
         # if key pair exists, return the key pair name
-        keypair = list(filter(lambda x: x['KeyName'] == 'airscholar-key', keypairs))
+        keypair = list(filter(lambda x: x['KeyName'] == key_name, keypairs))
 
         if not keypair:
             # create a new key pair
-            keypair = client.create_key_pair(KeyName='airscholar-key')
+            keypair = client.create_key_pair(KeyName=key_name)
             f = io.StringIO(keypair['KeyMaterial'])
             data = f.read()
             # write the key pair to a file
@@ -105,9 +105,9 @@ class MLBDApp:
 
         deployed_count = 0
         # get all instances
-        for instance in ec2.instances.all():
-            deployed_count += 1
+        for instance in ec2.instances.filter(Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'pending']}]):
             # if instance is running, add the instance id to the list else start all the instances
+            deployed_count += 1
             client.start_instances(InstanceIds=[instance.id])
             ec2_inst_ids.append(instance.id)
 
@@ -115,7 +115,7 @@ class MLBDApp:
         if deployed_count < count:
             ec2_inst_ids.append(self.launch_new_instance(client, keypair, (count - deployed_count)))
 
-        # if there no instances, launch new instances
+        # if there are no instances, launch new instances
         if not ec2_inst_ids:
             ec2_inst_ids.append(self.launch_new_instance(client, keypair, count))
 
@@ -183,11 +183,10 @@ class MLBDApp:
 
         return ip_address
 
-    def get_queue(self, sqs, queue_name='queue'):
+    def get_queue(self, sqs):
         """
         Get queue. If queue does not exist, create two queues, one for the computation and one for the result
         :param sqs: sqs client
-        :param queue_name: queue name
         """
 
         attributes = {
@@ -195,6 +194,7 @@ class MLBDApp:
             'MessageRetentionPeriod': '86400',
             "ReceiveMessageWaitTimeSeconds": "0"
         }
+        queue_name = 'queue'
 
         for idx in range(self.INSTANCE_SIZE):
             # create a computation queue for each instance
@@ -205,7 +205,7 @@ class MLBDApp:
 
             # create a result queue for each instance
             sqs.create_queue(
-                QueueName=f'result-queue-{idx}',
+                QueueName=f'result-{queue_name}-{idx}',
                 Attributes=attributes
             )
 
@@ -234,14 +234,29 @@ class MLBDApp:
         stdin, stdout, stderr = ssh.exec_command("sudo yum install pip -y && sudo pip install numpy boto3")
         return stdout, stderr
 
+    def start_worker(self, ssh, instance_id):
+        """
+        Start worker on the instance
+        :param ssh: ssh client with connection to the instance
+        :param instance_id: instance id
+        :return: tuple of (stdout {result of successful completion}, stderr {error message})
+        """
+        stdin, stdout, stderr = ssh.exec_command(f"nohup python3 worker.py {instance_id} > worker.log 2>&1 &")
+        print("Worker started")
+        return stdout, stderr
+
     def initialise_instances(self, client):
         """
         Initialise instances by installing required packages
         :param client: ec2 client
         """
+        print('Preparing SSH connection')
         sshs = self.configure_ssh()
-        keypair = self.get_key_pairs(client, False)
+        print('Getting keypairs')
+        keypair = self.get_key_pairs(client, 'airscholar-key', False)
+        print('Preparing instances')
         ec2, instances = self.prepare_instances(client, keypair['KeyName'], self.INSTANCE_SIZE)
+        print('Getting public addresses')
         ip_addresses = [self.get_public_address(ec2, instance) for instance in instances]
         print(list(ip_addresses))
         # connect to each instance and install required packages
@@ -267,10 +282,14 @@ class MLBDApp:
 
             # start worker on the instance
             print(f"Starting worker {idx}")
-            stdin, stdout, stderr = ssh.exec_command(f'python ./worker.py {idx}')
+            self.start_worker(ssh, idx)
+            # stdin, stdout, stderr = ssh.exec_command(f'python ./worker.py {idx}', get_pty=True)
             # only for debugging purposes. This prints the output of the worker non-stop.
-            # # print(stdout.read().decode('utf-8'))
-            # # print(stderr.read().decode('utf-8'))
+            # if idx == 3:
+            #     for line in iter(stdout.readline, ""):
+            #         print(line, end="")
+            # print(stdout.read().decode('utf-8'))
+            # print(stderr.read().decode('utf-8'))
 
     def get_messages_from_queue(self, queue, message_size=10):
         """
@@ -319,36 +338,15 @@ class MLBDApp:
     def generate_array(self, nrows, ncols, max_value=10):
         """
         Generate a random array of size nrows x ncols with values between 0 and max_value
+        :return:
         :param nrows: number of rows
         :param ncols: number of columns
-        :param max_value: max value of the array
+        :param max_value: max value of the array element
         :return: generated array
         """
         arr = np.random.randint(max_value, size=(nrows, ncols))
 
         return arr
-
-    def upload_file_to_s3(self, file_name, bucket, object_name=None):
-        """Upload a file to an S3 bucket
-
-        :param file_name: File to upload
-        :param bucket: Bucket to upload to
-        :param object_name: S3 object name. If not specified then file_name is used
-        :return: True if file was uploaded, else False
-        """
-
-        # If S3 object_name was not specified, use file_name
-        if object_name is None:
-            object_name = os.path.basename(file_name)
-
-        # Upload the file
-        s3_client = boto3.client('s3')
-        try:
-            response = s3_client.upload_file(file_name, bucket, object_name)
-        except:
-            # logging.error(e)
-            return False
-        return True
 
     def bulk_upload(self, scp, filepaths: list[str], remote_path, host):
         """
@@ -444,15 +442,16 @@ class MLBDApp:
         :param split_array2: split array 2
         :return: result of the operation
         """
-        if operation == 'add':
+        if operation == 'addition':
             for queue_id, dt in enumerate(np.array_split(np.arange(0, len(split_array1)), self.INSTANCE_SIZE)):
+                print(f'Queue {queue_id} has {len(dt)} tasks')
                 # send the data to the server
                 [self.send_message_to_queue(self.sqs, f'queue{queue_id}',
                                             [{"Id": f"{idx + 1}", "MessageBody": str((operation, (idx, (
                                                 self.reformat_data(split_array1[idx]),
                                                 self.reformat_data(split_array2[idx])))))}])
                  for idx in range(min(dt), max(dt) + 1) if len(dt) > 0]
-        elif operation == 'multiply':
+        elif operation == 'multiplication':
             for queue_id, dt in enumerate(np.array_split(np.arange(0, len(split_array1)), self.INSTANCE_SIZE)):
                 [print(f'queue{queue_id}', split_array1[idx], split_array2[idx]) for idx in range(min(dt), max(dt) + 1)
                  if
@@ -470,6 +469,7 @@ class MLBDApp:
 
         for a, b in enumerate(np.array_split(np.arange(0, len(split_array)), self.INSTANCE_SIZE)):
             compute_res = []
+            print(f"Received {len(b)} results from queue{a}")
             # get the result from the queue
             for i in range(len(b)):
                 res = self.get_messages_from_queue(f'result-queue-{a}', 1)
@@ -508,6 +508,7 @@ class MLBDApp:
             MaxResults=123)
 
         for queue in response['QueueUrls']:
+            print(f'Purging {queue}')
             client.purge_queue(QueueUrl=queue)
 
     def get_wait_time_based_on_matrix_size(self, size):
@@ -525,50 +526,56 @@ class MLBDApp:
         elif size <= 1000000:
             return 120
 
-    def task1(self, array_size, chunk_size, operation='addition'):
-        print(f'Generating {array_size}x{array_size} matrix')
-        arr = self.generate_array(array_size, array_size)
-        arr1 = self.generate_array(array_size, array_size)
-        print(f'Splitting {array_size}x{array_size} matrix into {chunk_size}x{chunk_size}')
-        s_arr = self.split_row(arr, chunk_size, chunk_size)
-        s_arr1 = self.split_row(arr1, chunk_size, chunk_size)
-        print(f'Computing manual addition of {array_size}x{array_size} matrix')
-        res1 = np.array(self.matrix_add(arr, arr1))
-        print(f"\nComputing distribution addition operation for {array_size}x{array_size}")
-        self.compute_matrix_operation(operation, s_arr, s_arr1)
-        # wait for all the computation to finish
-        time.sleep(self.get_wait_time_based_on_matrix_size(array_size))
-        # merge all the queue results
-        print(f"\nMerging computation results")
-        res2 = self.merge_queue_result(s_arr, array_size, chunk_size)
-        self.write_result_to_file(res2, f'{operation}_result.txt')
-        print(f"\nVerifying computation results")
-        if res1 == res2:
-            print(f"Verification Successful!")
-        else:
-            print(f"Verification Failed!")
+    def split_and_compute_dot_product(matrix_a, matrix_b, chunk_size):
+        """
+        Splits two huge matrices into smaller chunks and computes the dot product for each pair of chunks without using any libraries.
 
-    def task2(self, array_size, chunk_size, operation='multiplication'):
-        print(f'Generating {array_size}x{array_size} matrix')
-        arr = self.generate_array(array_size, array_size)
-        arr1 = self.generate_array(array_size, array_size)
-        print(f'Splitting {array_size}x{array_size} matrix into {chunk_size}x{chunk_size}')
-        s_arr = self.split_row(arr, chunk_size, chunk_size)
-        s_arr1 = self.split_row(arr1, chunk_size, chunk_size)
-        print(f'Computing manual addition of {array_size}x{array_size} matrix')
-        res1 = np.array(self.matrix_add(arr, arr1))
-        print(f"\nComputing distribution addition operation for {array_size}x{array_size}")
-        self.compute_matrix_operation(operation, s_arr, s_arr1)
-        # wait for all the computation to finish
-        time.sleep(self.get_wait_time_based_on_matrix_size(array_size))
-        # merge all the queue results
-        print(f"\nMerging computation results")
-        res2 = self.merge_queue_result(s_arr, array_size, chunk_size)
-        print(f"\nVerifying computation results")
-        self.write_result_to_file(res2, f'{operation}_result.txt')
-        print(res1 == res2)
+        Parameters:
+        - matrix_a (list): The first matrix to split and compute the dot product for.
+        - matrix_b (list): The second matrix to split and compute the dot product for.
+        - chunk_size (int): The size of each chunk.
 
+        Returns:
+        - dot_products (list): A list of dot products for each pair of chunks.
+        """
+        # Split the matrices into chunks
+        chunks_a = [matrix_a[i:i + chunk_size] for i in range(0, len(matrix_a), chunk_size)]
+        chunks_b = [matrix_b[i:i + chunk_size] for i in range(0, len(matrix_b), chunk_size)]
+
+        # Initialize a list to store the dot products
+        dot_products = []
+
+        # Iterate over the chunks and compute the dot product for each pair of chunks
+        for chunk_a, chunk_b in zip(chunks_a, chunks_b):
+            print(chunk_a, chunk_b)
+            dot_product = [[0 for j in range(len(chunk_a))] for i in range(len(chunk_b[0]))]
+            print(dot_product)
+            for i in range(len(chunk_b)):
+                for j in range(len(chunk_a[0])):
+                    for k in range(len(chunk_b[0])):
+                        dot_product[i][j] += chunk_b[i][k] * chunk_a[k][j]
+
+            dot_products.append(dot_product)
+
+        return dot_products
     def write_result_to_file(self, result, filename):
         with open(filename, 'w') as f:
             for item in result.tolist():
                 f.write("%s " % item)
+
+    def prepare_architecture(self):
+        self.get_queue(self.sqs_client)
+        self.initialise_instances(self.ec2)
+        print("INFRASTRUCTURE DONE!")
+
+    def teardown_infrastructure(self):
+        try:
+            self.terminate_instances()
+            self.delete_queues()
+            print("TEARDOWN DONE!")
+            return True
+        except Exception as e:
+            return False
+
+# cc = CloudComputingApp(8)
+# cc.initialise_instances(cc.ec2)

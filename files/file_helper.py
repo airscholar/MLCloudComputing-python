@@ -1,6 +1,7 @@
 """Find local files to be uploaded to remote host."""
-from os import walk, path
+from os import walk
 from typing import List
+
 
 def fetch_local_files(local_file_dir: str) -> List[str]:
     """
@@ -10,6 +11,5 @@ def fetch_local_files(local_file_dir: str) -> List[str]:
 
     :returns: List[str]
     """
-    local_files = walk(local_file_dir)
-    for root, dirs, files in local_files:
+    for root, dirs, files in walk(local_file_dir):
         return [f"{root}/{file}" for file in files]

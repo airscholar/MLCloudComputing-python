@@ -41,7 +41,6 @@ def perform_computation(sqs, worker_id, queue_name, result_queue_name):
             print(f"Message {(index + 1)} sent to result queue")
             message.delete() # Delete the message from the queue
 
-
 if __name__ == "__main__":
     sqs = boto3.resource("sqs", region_name='us-east-1')
     agent_id = sys.argv[1]
