@@ -43,13 +43,6 @@ class AWSSetup:
         return queue
 
     def get_key_pairs(self, client, key_name, removeExisting=False):
-        """
-        Get key pairs by name
-        :param client: boto3 client
-        :param key_name: name of the key pair
-        :param removeExisting: boolean to remove existing key pair
-        :return: the key pair
-        """
         if removeExisting:
             client.delete_key_pair(KeyName=key_name)
 
@@ -69,15 +62,6 @@ class AWSSetup:
         return keypair
 
     def create_new_instance(self, image_id, instance_type, key_name, security_group, instance_count=1):
-        """
-        Create a new EC2 instance
-        :param image_id: image id of the instance
-        :param instance_type: type of the instance
-        :param key_name: name of the key pair
-        :param security_group: name of the security group
-        :param instance_count: number of instances to create
-        :return: the created instance
-        """
         # ec2 = self.setup().resource('ec2')
         client = self.create_boto3_client()
 
@@ -99,9 +83,9 @@ class AWSSetup:
     def get_security_group(self, client, key_name, group_name='default'):
         """
         Get security group by name
-        :param key_name: name of the key pair
-        :param group_name: name of the security group
-        :return: the default security group or the created security group
+        :param key_name:
+        :param group_name:
+        :return: the default security group
         """
         # extract key_name attribute from the security groups returned
         response = [group[key_name] for group in client.describe_security_groups()['SecurityGroups'] if
