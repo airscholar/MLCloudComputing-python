@@ -19,6 +19,7 @@ class CloudComputingApp:
         self.INSTANCE_SIZE = instance_size
         self.sqs = boto3.resource('sqs', region_name='us-east-1')
         self.ec2 = boto3.client('ec2', region_name='us-east-1')
+        self.ec2_resource = boto3.resource('ec2', region_name='us-east-1')
         self.sqs_client = boto3.client('sqs')
 
     def get_default_security_group(self, client, key_name):
@@ -83,11 +84,11 @@ class CloudComputingApp:
             },
             SecurityGroupIds=self.get_default_security_group(client, key_name='GroupId')
         )
-        ec2_inst_ids = [res["InstanceId"] for res in response if res]
+        ec2_inst_ids = [res["InstanceId"] for res in response["Instances"]]
         # wait for all the instances to be running
         waiter = client.get_waiter('instance_running')
         # extract instance ids of the instances launched
-        waiter.wait(InstanceIds=[ec2_inst_ids])
+        waiter.wait(InstanceIds=ec2_inst_ids)
         return ec2_inst_ids
 
     def prepare_instances(self, client, keypair, count):
@@ -100,12 +101,12 @@ class CloudComputingApp:
         :param count: number of instances to launch
         :return: tuple of (ec2 object,  instance ids)
         """
-        ec2 = boto3.resource('ec2')
+        ec2 = self.ec2_resource
         ec2_inst_ids = []
-
         deployed_count = 0
         # get all instances
-        for instance in ec2.instances.filter(Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'pending']}]):
+        for instance in ec2.instances.filter(
+                Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'pending']}]):
             # if instance is running, add the instance id to the list else start all the instances
             deployed_count += 1
             client.start_instances(InstanceIds=[instance.id])
@@ -113,11 +114,12 @@ class CloudComputingApp:
 
         # if the new count is greater than the existing count, launch new instances
         if deployed_count < count:
-            ec2_inst_ids.append(self.launch_new_instance(client, keypair, (count - deployed_count)))
+            instance_ids = self.launch_new_instance(client, keypair, (count - deployed_count))
+            [ec2_inst_ids.append(instance_id) for instance_id in instance_ids]
 
         # if there are no instances, launch new instances
         if not ec2_inst_ids:
-            ec2_inst_ids.append(self.launch_new_instance(client, keypair, count))
+            ec2_inst_ids = self.launch_new_instance(client, keypair, count)
 
         return ec2, ec2_inst_ids
 
@@ -242,7 +244,7 @@ class CloudComputingApp:
         :return: tuple of (stdout {result of successful completion}, stderr {error message})
         """
         stdin, stdout, stderr = ssh.exec_command(f"nohup python3 worker.py {instance_id} > worker.log 2>&1 &")
-        print("Worker started")
+        print(f"Worker {instance_id} started")
         return stdout, stderr
 
     def initialise_instances(self, client):
@@ -257,6 +259,7 @@ class CloudComputingApp:
         print('Preparing instances')
         ec2, instances = self.prepare_instances(client, keypair['KeyName'], self.INSTANCE_SIZE)
         print('Getting public addresses')
+        print(instances)
         ip_addresses = [self.get_public_address(ec2, instance) for instance in instances]
         print(list(ip_addresses))
         # connect to each instance and install required packages
@@ -558,6 +561,7 @@ class CloudComputingApp:
             dot_products.append(dot_product)
 
         return dot_products
+
     def write_result_to_file(self, result, filename):
         with open(filename, 'w') as f:
             for item in result.tolist():
@@ -576,6 +580,3 @@ class CloudComputingApp:
             return True
         except Exception as e:
             return False
-
-# cc = CloudComputingApp(8)
-# cc.initialise_instances(cc.ec2)

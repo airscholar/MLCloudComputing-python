@@ -16,12 +16,12 @@ def perform_computation(sqs, worker_id, queue_name, result_queue_name):
 
         for message in messages:
             # print(message.body)
-            operation, data = literal_eval(message.body)
+            operation, data = eval(message.body)
             index, matrices = data
             matrix_a, matrix_b = matrices
 
-            matrix_a = matrix_a.replace('  ', ',').replace('[ ', '[').replace(' ', ',')
-            matrix_b = matrix_b.replace('  ', ',').replace('[ ', '[').replace(' ', ',')
+            matrix_a = matrix_a.replace('  ', ' ').replace('  ', ',').replace('[ ', '[').replace(' ', ',')
+            matrix_b = matrix_b.replace('  ', ' ').replace('  ', ',').replace('[ ', '[').replace(' ', ',')
 
             matrix_a = np.array(literal_eval(matrix_a))
             matrix_b = np.array(literal_eval(matrix_b))
