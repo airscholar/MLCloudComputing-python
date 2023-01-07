@@ -16,6 +16,10 @@ np.set_printoptions(threshold=sys.maxsize)
 
 class CloudComputingApp:
     def __init__(self, instance_size):
+        """
+        Initialize the class
+        :param instance_size: number of instances to launch
+        """
         self.INSTANCE_SIZE = instance_size
         self.sqs = boto3.resource('sqs', region_name='us-east-1')
         self.ec2 = boto3.client('ec2', region_name='us-east-1')
@@ -288,9 +292,6 @@ class CloudComputingApp:
             self.start_worker(ssh, idx)
             # stdin, stdout, stderr = ssh.exec_command(f'python ./worker.py {idx}', get_pty=True)
             # only for debugging purposes. This prints the output of the worker non-stop.
-            # if idx == 3:
-            #     for line in iter(stdout.readline, ""):
-            #         print(line, end="")
             # print(stdout.read().decode('utf-8'))
             # print(stderr.read().decode('utf-8'))
 
@@ -563,16 +564,30 @@ class CloudComputingApp:
         return dot_products
 
     def write_result_to_file(self, result, filename):
+        """
+        This function writes the result to a file
+        :param result: result to be written
+        :param filename: filename
+        :return:
+        """
         with open(filename, 'w') as f:
             for item in result.tolist():
                 f.write("%s " % item)
 
     def prepare_architecture(self):
+        """
+        This function prepares the architecture on AWS
+        :return:
+        """
         self.get_queue(self.sqs_client)
         self.initialise_instances(self.ec2)
         print("INFRASTRUCTURE DONE!")
 
     def teardown_infrastructure(self):
+        """
+        This function tears down the infrastructure on AWS
+        :return:
+        """
         try:
             self.terminate_instances()
             self.delete_queues()
